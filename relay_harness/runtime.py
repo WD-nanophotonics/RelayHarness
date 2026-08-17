@@ -173,6 +173,15 @@ class RuntimeLayout:
                 next_action = f"continue_owner:{latest['current_role']}:{latest['message_id']}"
             else:
                 next_action = "no_action"
+        endpoint_records: list[dict[str, Any]] = []
+        activation_records: list[dict[str, Any]] = []
+        try:
+            registry = self.endpoint_registry()
+            endpoint_records = [endpoint.to_dict() for endpoint in registry.list()]
+            for activation_path in sorted(registry.activations.glob("*.json")):
+                activation_records.append(read_json(activation_path))
+        except (FileNotFoundError, RecoveryError):
+            pass
         complete = bool(capsules) and not errors and all(item.get("next_role") is not None for item in capsules[-1:])
         return {
             "project_id": manifest.get("project_id"),
@@ -192,6 +201,8 @@ class RuntimeLayout:
             },
             "ownership": [str(path) for path in ownership_files],
             "ownership_records": ownership_records,
+            "endpoints": endpoint_records,
+            "activations": activation_records,
             "next_deterministic_action": next_action,
             "continuation_structurally_complete": complete,
             "errors": errors,

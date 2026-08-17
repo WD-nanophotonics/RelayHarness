@@ -67,6 +67,9 @@ class ProductizationTests(unittest.TestCase):
             summary = service.layout.status_summary()
             self.assertEqual(summary["worker"]["endpoint_id"], "worker-endpoint")
             self.assertEqual(summary["coordinator"]["endpoint_id"], "coordinator-endpoint")
+            recovery = service.layout.inspect_recovery(paths.root.name)
+            self.assertEqual({item["role"] for item in recovery["endpoints"]}, {"worker", "coordinator"})
+            self.assertTrue(recovery["activations"])
 
     def test_codex_thread_backend_wakeup_is_bootstrap_only(self):
         with tempfile.TemporaryDirectory() as temporary:
