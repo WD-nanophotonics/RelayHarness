@@ -10,7 +10,7 @@ from relay_harness.errors import IntegrityError, ModelPolicyError, SchemaError
 from relay_harness.journal import IncidentRecorder, StructuredJournal
 from relay_harness.model_policy import ModelEvidence, ModelPolicy, ModelRequest
 from relay_harness.runtime import RuntimeLayout
-from relay_harness.schemas import BootstrapCapsule, Claim, ResultCapsule, TaskCapsule
+from relay_harness.schemas import BootstrapCapsule, Claim, ResultCapsule, TaskCapsule, default_terminal_contract
 from relay_harness.storage import atomic_write_json, sha256_file, verify_hash
 
 
@@ -42,7 +42,7 @@ class FoundationTests(unittest.TestCase):
                 runtime_root=temporary, profile_ref="profiles/demo.json", durable_state_refs={"objective": "state/objective.md"},
                 semantic_ref="tasks/task_1.json", repository={"path": "../demo", "branch": "main"},
                 expected_git={"head": None, "branch": "main"}, output_contract={"result": "results/*.json"},
-                logging_contract={"journal": "logs/journal.jsonl"}, successor_role="coordinator", terminal_contract={"on_exit": "capture"},
+                logging_contract={"journal": "logs/journal.jsonl"}, successor_role="coordinator", terminal_contract=default_terminal_contract(),
             )
             parsed = BootstrapCapsule.from_dict(capsule.to_dict())
             self.assertEqual(parsed.required_model, "Luna")

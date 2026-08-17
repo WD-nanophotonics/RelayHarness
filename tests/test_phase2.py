@@ -12,7 +12,7 @@ from relay_harness.mailbox import MailboxStore
 from relay_harness.model_policy import ModelEvidence
 from relay_harness.process import AgentLauncher, LaunchAuthority, ProcessHandle, StartupAck
 from relay_harness.runtime import RuntimeLayout
-from relay_harness.schemas import BootstrapCapsule, MailboxMessage, ResultCapsule, TaskCapsule
+from relay_harness.schemas import BootstrapCapsule, MailboxMessage, ResultCapsule, TaskCapsule, default_terminal_contract
 from relay_harness.storage import atomic_write_bytes, atomic_write_json
 from relay_harness.transport import ChromeDOMTransport
 
@@ -56,7 +56,7 @@ class Phase2Tests(unittest.TestCase):
             runtime_root=str(paths.root), profile_ref="profiles/demo.json", durable_state_refs={"objective": "state/objective.md"},
             semantic_ref="payloads/task.md", repository={"path": "repo", "branch": "main"},
             expected_git={"head": "abc", "branch": "main"}, output_contract={"result": "results/*.json"},
-            logging_contract={"journal": "logs/journal.jsonl"}, successor_role=successor_role, terminal_contract={"on_exit": "capture"},
+            logging_contract={"journal": "logs/journal.jsonl"}, successor_role=successor_role, terminal_contract=default_terminal_contract(),
         )
         path = paths.capsules / f"turn_1_{role}.json"
         from relay_harness.storage import atomic_write_json
@@ -149,7 +149,7 @@ class Phase2Tests(unittest.TestCase):
                     project_id="demo", run_id=paths.root.name, turn_id="turn_1", role="coordinator",
                     runtime_root=str(paths.root), profile_ref="profiles/demo.json", durable_state_refs={}, semantic_ref=None,
                     repository={"path": "repo", "branch": "main"}, expected_git={}, output_contract={"result": "x"},
-                    logging_contract={"journal": "x"}, successor_role="worker", terminal_contract={"on_exit": "capture"},
+                    logging_contract={"journal": "x"}, successor_role="worker", terminal_contract=default_terminal_contract(),
                 ))
             with self.assertRaises(IntegrityError):
                 validate_successor_routing(capsule, "worker")

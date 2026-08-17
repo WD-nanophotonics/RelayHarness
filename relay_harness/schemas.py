@@ -18,6 +18,7 @@ from .storage import canonical_json, sha256_bytes
 PROTOCOL_VERSION = "1"
 CAPSULE_PROTOCOL_VERSION = "2"
 LIFECYCLE_ROLES = {"relay", "coordinator", "worker"}
+TERMINAL_DECISIONS = {"COMPLETE", "HUMAN_REQUIRED", "FAILED"}
 
 
 def utc_now() -> str:
@@ -64,6 +65,7 @@ class BootstrapCapsule:
             raise SchemaError("bootstrap capsule must require Luna High")
         if not self.output_contract or not self.logging_contract or not self.terminal_contract:
             raise SchemaError("bootstrap capsule contracts must be explicit")
+        TerminalContract.from_dict(self.terminal_contract)
 
     def to_dict(self) -> dict[str, Any]:
         self.validate()
@@ -189,6 +191,119 @@ class ResultCapsule:
             result = cls(**values)
         except TypeError as exc:
             raise SchemaError(f"invalid result capsule: {exc}") from exc
+        result.validate()
+        return result
+
+
+@dataclass(frozen=True)
+class TerminalContract:
+    """The small Kernel-supplied contract for a semantic terminal decision."""
+
+    protocol_version: str = PROTOCOL_VERSION
+    authority_role: str = "coordinator"
+    allowed_decisions: tuple[str, ...] = ("COMPLETE", "HUMAN_REQUIRED", "FAILED")
+    decision_path_template: str = "terminal/decisions/{turn_id}_{activation_id}.json"
+    summary_required: bool = True
+    result_refs_required_for: tuple[str, ...] = ("COMPLETE",)
+    concern_refs_required_for: tuple[str, ...] = ("HUMAN_REQUIRED",)
+    commit_action: str = "commit_terminal"
+
+    def validate(self) -> None:
+        if self.protocol_version != PROTOCOL_VERSION or self.authority_role != "coordinator":
+            raise SchemaError("invalid terminal contract authority or protocol")
+        allowed = set(self.allowed_decisions)
+        if not allowed or not allowed.issubset(TERMINAL_DECISIONS):
+            raise SchemaError("terminal contract has invalid decision values")
+        if not self.decision_path_template.startswith("terminal/") or "{turn_id}" not in self.decision_path_template or "{activation_id}" not in self.decision_path_template:
+            raise SchemaError("terminal contract must provide a Kernel-owned decision path")
+        if self.commit_action != "commit_terminal" or not isinstance(self.summary_required, bool):
+            raise SchemaError("terminal contract has invalid commit policy")
+        if not set(self.result_refs_required_for).issubset(allowed) or not set(self.concern_refs_required_for).issubset(allowed):
+            raise SchemaError("terminal contract reference policy names an unallowed decision")
+
+    def to_dict(self) -> dict[str, Any]:
+        self.validate()
+        return {
+            "protocol_version": self.protocol_version,
+            "authority_role": self.authority_role,
+            "allowed_decisions": list(self.allowed_decisions),
+            "decision_path_template": self.decision_path_template,
+            "summary_required": self.summary_required,
+            "result_refs_required_for": list(self.result_refs_required_for),
+            "concern_refs_required_for": list(self.concern_refs_required_for),
+            "commit_action": self.commit_action,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "TerminalContract":
+        expected = {
+            "protocol_version", "authority_role", "allowed_decisions", "decision_path_template",
+            "summary_required", "result_refs_required_for", "concern_refs_required_for", "commit_action",
+        }
+        if set(data) != expected:
+            raise SchemaError("terminal contract keys are not strict")
+        try:
+            result = cls(
+                protocol_version=data["protocol_version"],
+                authority_role=data["authority_role"],
+                allowed_decisions=tuple(data["allowed_decisions"]),
+                decision_path_template=data["decision_path_template"],
+                summary_required=data["summary_required"],
+                result_refs_required_for=tuple(data["result_refs_required_for"]),
+                concern_refs_required_for=tuple(data["concern_refs_required_for"]),
+                commit_action=data["commit_action"],
+            )
+        except (KeyError, TypeError) as exc:
+            raise SchemaError(f"invalid terminal contract: {exc}") from exc
+        result.validate()
+        return result
+
+
+def default_terminal_contract() -> dict[str, Any]:
+    return TerminalContract().to_dict()
+
+
+@dataclass
+class TerminalDecision:
+    """Durable semantic output; only a Coordinator may terminate a run."""
+
+    project_id: str
+    run_id: str
+    turn_id: str
+    activation_id: str
+    endpoint_id: str
+    role: str
+    decision: str
+    summary_ref: str
+    result_refs: list[str] = field(default_factory=list)
+    concern_refs: list[str] = field(default_factory=list)
+    protocol_version: str = PROTOCOL_VERSION
+    created_at: str = field(default_factory=utc_now)
+
+    kind: ClassVar[str] = "terminal_decision"
+
+    def validate(self) -> None:
+        if self.protocol_version != PROTOCOL_VERSION:
+            raise SchemaError("unsupported terminal decision protocol")
+        if not all((self.project_id, self.run_id, self.turn_id, self.activation_id, self.endpoint_id, self.role, self.summary_ref)):
+            raise SchemaError("terminal decision has missing identity or summary reference")
+        if self.role != "coordinator" or self.decision not in TERMINAL_DECISIONS:
+            raise SchemaError("only a Coordinator may emit an allowed terminal decision")
+        if any(not ref or not isinstance(ref, str) for ref in (*self.result_refs, *self.concern_refs)):
+            raise SchemaError("terminal decision references must be non-empty paths")
+
+    def to_dict(self) -> dict[str, Any]:
+        self.validate()
+        return {"kind": self.kind, **self.__dict__}
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "TerminalDecision":
+        values = dict(data)
+        values.pop("kind", None)
+        try:
+            result = cls(**values)
+        except TypeError as exc:
+            raise SchemaError(f"invalid terminal decision: {exc}") from exc
         result.validate()
         return result
 
