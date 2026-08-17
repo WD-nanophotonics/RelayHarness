@@ -46,8 +46,30 @@ def atomic_write_bytes(path: Path, data: bytes) -> str:
             pass
 
 
+def atomic_create_bytes(path: Path, data: bytes) -> str:
+    """Create a file exactly once; callers use this for immutable records."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        return sha256_bytes(data)
+    except Exception:
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
+        raise
+
+
 def atomic_write_json(path: Path, value: Any) -> str:
     return atomic_write_bytes(path, canonical_json(value))
+
+
+def atomic_create_json(path: Path, value: Any) -> str:
+    return atomic_create_bytes(path, canonical_json(value))
 
 
 def read_json(path: Path) -> Any:

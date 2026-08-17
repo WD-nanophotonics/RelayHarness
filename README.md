@@ -41,6 +41,9 @@ The default runtime is file-backed and conceptually shaped as:
     unresolved.json
   runs/<run_id>/
     run.json
+    mailbox/{relay,worker}/{pending,claimed,done}/
+    messages/
+    payloads/
     capsules/
     tasks/
     results/
@@ -53,6 +56,8 @@ The default runtime is file-backed and conceptually shaped as:
 
 Large semantic content lives in referenced files. A Bootstrap/Continuation Capsule carries only identity, protocol version, model requirement, profile/state references, the current semantic delta reference, repository/Git expectations, output/logging contracts, and the next-role/terminal contract. It does not recursively copy prompts.
 
+Phase 2 adds a small mailbox: immutable structured messages are published to the exact recipient's `pending` directory, claimed by one owner, and moved to `done` only after completion. Payloads are hashed files; message metadata carries the payload hash and its own integrity hash. A handoff ledger records `handoff_pending` before launch and changes to `owned` only after the successor's exact PID/role/capsule ACK and independently supplied model evidence are accepted.
+
 After a process dies, `relayharness recover <project> <run_id>` inspects the durable manifest, capsules, tasks, results, and claims and reports whether a structurally complete continuation exists. Inspection is deliberately not semantic recovery certification and does not launch an agent.
 
 ## Lifecycle and observability
@@ -64,6 +69,8 @@ Elapsed time alone is not an incident. Future watchdog/monitoring code must comb
 ## Model policy
 
 Every future real agent launch must request exactly `Luna` with `High` reasoning and must provide independently verifiable model evidence. `ModelPolicy` rejects Terra, Sol, aliases, and omitted/default selection. The launcher boundary refuses a launch without an explicit `ModelRequest`; provider-specific argument encoding and live verification belong to the next integration phase. This foundation does not claim `LUNA_HIGH_CONTROLLER_PASS` or worker certification because no real agent was launched.
+
+The Phase 2 probe demonstrated that the installed Codex CLI currently rejects `Luna` for the ChatGPT account (`model not supported`), so no real A/B process or Mechanics pilot is certified. The implementation fails closed rather than falling back to another model.
 
 ## Supervisory transport
 

@@ -11,7 +11,8 @@ from uuid import uuid4
 
 from .config import ProjectProfile
 from .errors import IntegrityError, RecoveryError
-from .schemas import BootstrapCapsule, Claim, ResultCapsule, TaskCapsule, utc_now
+from .mailbox import MailboxPaths, MailboxStore
+from .schemas import BootstrapCapsule, Claim, OwnershipRecord, ResultCapsule, TaskCapsule, utc_now
 from .storage import atomic_write_json, read_json, sha256_file
 
 
@@ -38,9 +39,19 @@ class RunPaths:
     @property
     def terminal(self) -> Path: return self.root / "terminal"
 
+    @property
+    def mailbox(self) -> Path: return self.root / "mailbox"
+
+    @property
+    def messages(self) -> Path: return self.root / "messages"
+
+    @property
+    def payloads(self) -> Path: return self.root / "payloads"
+
     def create(self) -> None:
-        for path in (self.capsules, self.tasks, self.results, self.claims, self.owners, self.logs, self.incidents, self.terminal):
+        for path in (self.capsules, self.tasks, self.results, self.claims, self.owners, self.logs, self.incidents, self.terminal, self.messages, self.payloads):
             path.mkdir(parents=True, exist_ok=True)
+        MailboxPaths(self.root).create()
 
 
 class RuntimeLayout:
@@ -107,6 +118,15 @@ class RuntimeLayout:
         atomic_write_json(target, result.to_dict())
         return target
 
+    def mailbox(self, paths: RunPaths) -> MailboxStore:
+        return MailboxStore(MailboxPaths(paths.root))
+
+    def write_ownership(self, paths: RunPaths, record: OwnershipRecord) -> Path:
+        record.validate()
+        target = paths.owners / f"{record.turn_id}.json"
+        atomic_write_json(target, record.to_dict())
+        return target
+
     def acquire_claim(self, paths: RunPaths, claim: Claim) -> Path:
         """Create-if-absent claim file; two owners cannot silently overwrite each other."""
         claim.validate()
@@ -133,6 +153,22 @@ class RuntimeLayout:
                 errors.append(f"{path.name}: {exc}")
         task_files = sorted(paths.tasks.glob("*.json"))
         result_files = sorted(paths.results.glob("*.json"))
+        ownership_files = sorted(paths.owners.glob("*.json"))
+        ownership_records: list[dict[str, Any]] = []
+        for path in ownership_files:
+            try:
+                ownership_records.append(OwnershipRecord.from_dict(read_json(path)).to_dict())
+            except Exception as exc:
+                errors.append(f"{path.name}: {exc}")
+        next_action = "no_owner_record"
+        if ownership_records:
+            latest = ownership_records[-1]
+            if latest["state"] == "handoff_pending":
+                next_action = f"launch_successor:{latest['successor_role']}:{latest['message_id']}"
+            elif latest["state"] == "owned":
+                next_action = f"continue_owner:{latest['current_role']}:{latest['message_id']}"
+            else:
+                next_action = "no_action"
         complete = bool(capsules) and not errors and all(item.get("next_role") is not None for item in capsules[-1:])
         return {
             "project_id": manifest.get("project_id"),
@@ -143,6 +179,16 @@ class RuntimeLayout:
             "tasks": [str(path) for path in task_files],
             "results": [str(path) for path in result_files],
             "claims": [str(path) for path in sorted(paths.claims.glob("*.json"))],
+            "mailbox": {
+                role: {
+                    state: [str(path) for path in sorted((paths.mailbox / role / state).glob("*.json"))]
+                    for state in ("pending", "claimed", "done")
+                }
+                for role in ("relay", "worker")
+            },
+            "ownership": [str(path) for path in ownership_files],
+            "ownership_records": ownership_records,
+            "next_deterministic_action": next_action,
             "continuation_structurally_complete": complete,
             "errors": errors,
         }

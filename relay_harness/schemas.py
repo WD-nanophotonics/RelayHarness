@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from .errors import SchemaError
 from .model_policy import REQUIRED_MODEL, REQUIRED_REASONING
+from .storage import canonical_json, sha256_bytes
 
 
 PROTOCOL_VERSION = "1"
@@ -174,5 +175,110 @@ class Claim:
             result = cls(**data)
         except TypeError as exc:
             raise SchemaError(f"invalid claim: {exc}") from exc
+        result.validate()
+        return result
+
+
+@dataclass
+class MailboxMessage:
+    """Small immutable mailbox metadata; semantic content lives at payload_ref."""
+
+    message_id: str
+    run_id: str
+    turn_id: str
+    sender_role: str
+    recipient_role: str
+    message_kind: str
+    payload_ref: str
+    capsule_ref: str
+    payload_sha256: str
+    parent_id: str | None = None
+    created_at: str = field(default_factory=utc_now)
+    protocol_version: str = PROTOCOL_VERSION
+    message_sha256: str = ""
+
+    kind: ClassVar[str] = "mailbox_message"
+
+    def unsigned_dict(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind,
+            "message_id": self.message_id,
+            "run_id": self.run_id,
+            "turn_id": self.turn_id,
+            "sender_role": self.sender_role,
+            "recipient_role": self.recipient_role,
+            "message_kind": self.message_kind,
+            "payload_ref": self.payload_ref,
+            "capsule_ref": self.capsule_ref,
+            "payload_sha256": self.payload_sha256,
+            "parent_id": self.parent_id,
+            "created_at": self.created_at,
+            "protocol_version": self.protocol_version,
+        }
+
+    def seal(self) -> "MailboxMessage":
+        self.message_sha256 = sha256_bytes(canonical_json(self.unsigned_dict()))
+        return self
+
+    def validate(self) -> None:
+        if self.protocol_version != PROTOCOL_VERSION:
+            raise SchemaError("unsupported mailbox message protocol")
+        if not all([self.message_id, self.run_id, self.turn_id, self.sender_role, self.recipient_role, self.message_kind, self.payload_ref, self.capsule_ref, self.payload_sha256]):
+            raise SchemaError("mailbox message has missing fields")
+        if self.sender_role == self.recipient_role or self.recipient_role not in {"relay", "worker"}:
+            raise SchemaError("mailbox message has invalid sender/recipient roles")
+        if len(self.payload_sha256) != 64:
+            raise SchemaError("mailbox message payload hash is not SHA-256")
+        expected = sha256_bytes(canonical_json(self.unsigned_dict()))
+        if not self.message_sha256 or self.message_sha256 != expected:
+            raise SchemaError("mailbox message integrity hash mismatch")
+
+    def to_dict(self) -> dict[str, Any]:
+        self.seal()
+        self.validate()
+        return {**self.unsigned_dict(), "message_sha256": self.message_sha256}
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "MailboxMessage":
+        values = dict(data)
+        values.pop("kind", None)
+        try:
+            result = cls(**values)
+        except TypeError as exc:
+            raise SchemaError(f"invalid mailbox message: {exc}") from exc
+        result.validate()
+        return result
+
+
+@dataclass
+class OwnershipRecord:
+    run_id: str
+    turn_id: str
+    current_role: str
+    message_id: str | None
+    owner_pid: int | None
+    state: str
+    successor_role: str | None = None
+    predecessor_role: str | None = None
+    updated_at: str = field(default_factory=utc_now)
+
+    def validate(self) -> None:
+        if self.state not in {"owned", "handoff_pending", "transferred", "terminal"}:
+            raise SchemaError("invalid ownership state")
+        if not all([self.run_id, self.turn_id, self.current_role]):
+            raise SchemaError("ownership record has missing identity")
+        if self.state == "handoff_pending" and not self.successor_role:
+            raise SchemaError("pending handoff must identify successor role")
+
+    def to_dict(self) -> dict[str, Any]:
+        self.validate()
+        return self.__dict__.copy()
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "OwnershipRecord":
+        try:
+            result = cls(**data)
+        except TypeError as exc:
+            raise SchemaError(f"invalid ownership record: {exc}") from exc
         result.validate()
         return result

@@ -16,13 +16,19 @@ Task and result capsules carry their own run/turn identity and references to lar
 
 `RuntimeLayout.inspect_recovery` is intentionally conservative. It reconstructs what files exist, parses every capsule, reports malformed evidence, and identifies whether a continuation is structurally plausible. It does not infer what A should think, retry a failed process, or certify a successful crash-recovery run. Those are future bounded phases with explicit tests.
 
+Phase 2 adds a mailbox under each run. Messages are immutable small records addressed to exactly `relay` or `worker`; semantic payloads are separate hashed files. A message moves from `pending` to `claimed` to `done`, with one claim record and an ownership ledger. An interrupted `handoff_pending` record tells recovery which exact successor role and message must be resumed.
+
 ## Process contract
 
 `SubprocessLauncher` requires an explicit `ModelRequest`, passes the capsule location and exact model request as launch metadata, and returns the exact child PID. `StartupAck` and `LivenessEvidence` are typed records; `verify_startup_ack` rejects a PID mismatch. Provider-specific model flag encoding and independent runtime model evidence must be supplied by a future real-agent adapter.
 
+`LaunchAuthority` derives command, repository working directory, and Luna High selection from the authoritative profile. Semantic routing is limited to the next role; command, shell, cwd, environment, model, reasoning, and runtime-root overrides are rejected.
+
 ## Incident evidence
 
 The journal is append-only JSONL for every run. Incidents have a small concern record plus separately preserved objective evidence. This prevents subjective agent prose from being the only basis for escalation and keeps normal supervisory traffic small.
+
+`ChromeDOMTransport` is optional and sits outside the Kernel. It receives an injected browser bridge, writes inbound external content to local files before returning it, and durably records outbound submissions and verification. The Kernel depends only on `SupervisoryTransport`, never on DOM selectors or Chrome state.
 
 ## Deliberate exclusions
 
