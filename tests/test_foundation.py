@@ -42,10 +42,25 @@ class FoundationTests(unittest.TestCase):
                 runtime_root=temporary, profile_ref="profiles/demo.json", durable_state_refs={"objective": "state/objective.md"},
                 semantic_ref="tasks/task_1.json", repository={"path": "../demo", "branch": "main"},
                 expected_git={"head": None, "branch": "main"}, output_contract={"result": "results/*.json"},
-                logging_contract={"journal": "logs/journal.jsonl"}, next_role="controller", terminal_contract={"on_exit": "capture"},
+                logging_contract={"journal": "logs/journal.jsonl"}, successor_role="coordinator", terminal_contract={"on_exit": "capture"},
             )
             parsed = BootstrapCapsule.from_dict(capsule.to_dict())
             self.assertEqual(parsed.required_model, "Luna")
+
+    def test_legacy_v1_capsule_is_inspectable_but_not_resumable(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            layout = RuntimeLayout(self.profile(Path(temporary)))
+            paths = layout.new_run()
+            legacy = {
+                "kind": "bootstrap", "protocol_version": "1", "project_id": "demo", "run_id": paths.root.name,
+                "turn_id": "turn_legacy", "role": "worker", "next_role": "coordinator",
+            }
+            atomic_write_json(paths.capsules / "legacy.json", legacy)
+            with self.assertRaises(SchemaError):
+                BootstrapCapsule.from_dict(legacy)
+            report = layout.inspect_recovery(paths.root.name)
+            self.assertEqual(report["legacy_capsules"][0]["resumable"], False)
+            self.assertEqual(report["next_deterministic_action"], "legacy_protocol_v1_requires_manual_migration")
 
     def test_runtime_claims_and_recovery_inspection(self):
         with tempfile.TemporaryDirectory() as temporary:

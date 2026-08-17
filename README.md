@@ -64,7 +64,7 @@ The default runtime is file-backed and conceptually shaped as:
     terminal/
 ```
 
-Large semantic content lives in referenced files. A Bootstrap/Continuation Capsule carries only identity, protocol version, model requirement, profile/state references, the current semantic delta reference, repository/Git expectations, output/logging contracts, and the next-role/terminal contract. It does not recursively copy prompts.
+Large semantic content lives in referenced files. A protocol-v2 Bootstrap/Continuation Capsule carries only identity, model requirement, profile/state references, the current semantic delta reference, repository/Git expectations, output/logging contracts, the current executing `role`, and the post-completion `successor_role`/terminal contract. It does not recursively copy prompts. Historical protocol-v1 capsules with ambiguous `next_role` are inspect-only and cannot be silently resumed.
 
 Phase 2 adds a small mailbox: immutable structured messages are published to the exact recipient's `pending` directory, claimed by one owner, and moved to `done` only after completion. Payloads are hashed files; message metadata carries the payload hash and its own integrity hash. A handoff ledger records `handoff_pending` before launch and changes to `owned` only after the successor's exact PID/role/capsule ACK and independently supplied model evidence are accepted.
 

@@ -90,15 +90,17 @@ class LaunchAuthority:
         protected = self.protected_fields.intersection(semantic_routing)
         if protected:
             raise IntegrityError(f"semantic routing attempted protected launch override: {sorted(protected)}")
-        next_role = semantic_routing.get("next_role", capsule.next_role)
-        if next_role not in {"relay", "coordinator", "worker"}:
-            raise IntegrityError(f"invalid semantic next role: {next_role!r}")
+        forbidden_routing = {"next_role", "successor_role"}.intersection(semantic_routing)
+        if forbidden_routing:
+            raise IntegrityError(f"semantic routing attempted lifecycle-role override: {sorted(forbidden_routing)}")
+        if "role" in semantic_routing and semantic_routing["role"] != capsule.role:
+            raise IntegrityError("semantic routing attempted current-role override")
         repository = Path(self.profile.repository.path).resolve()
         return LaunchSpec(
             command=tuple(self.profile.agent.command),
             cwd=repository,
             capsule_path=capsule_path,
-            role=str(next_role),
+            role=capsule.role,
             model_request=ModelRequest(self.profile.agent.model, self.profile.agent.reasoning),
         )
 

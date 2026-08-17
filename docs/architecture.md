@@ -12,7 +12,7 @@ The foundation deliberately has no Controller class. A future Relay Agent A impl
 
 ## Capsule fields
 
-Every bootstrap capsule carries protocol, project/run/turn/role identity, required Luna High selection, runtime and profile references, durable state references, an optional current semantic reference, repository and expected Git metadata, output and logging contracts, the next role, and terminal behavior. The current task or result is a reference, not a prompt-history copy.
+Bootstrap capsules use protocol v2. `role` is the role that consumes and executes the current activation; `successor_role` is only the expected post-completion handoff role and may be null for a terminal activation. Every capsule carries project/run/turn identity, required Luna High selection, runtime and profile references, durable state references, an optional current semantic reference, repository and expected Git metadata, output and logging contracts, and terminal behavior. The current task or result is a reference, not a prompt-history copy. Protocol-v1 capsules containing ambiguous `next_role` remain inspect-only evidence and are never silently resumed.
 
 Task and result capsules carry their own run/turn identity and references to larger semantic files. Their validation is structural; the Kernel does not judge whether an engineering result is good.
 
@@ -20,7 +20,7 @@ Task and result capsules carry their own run/turn identity and references to lar
 
 `RuntimeLayout.inspect_recovery` is intentionally conservative. It reconstructs what files exist, parses every capsule, reports malformed evidence, and identifies whether a continuation is structurally plausible. It does not infer what A should think, retry a failed process, or certify a successful crash-recovery run. Those are future bounded phases with explicit tests.
 
-Phase 2 adds a mailbox under each run. Messages are immutable small records addressed to `relay`, `coordinator`, or `worker`; semantic payloads are separate hashed files. A message moves from `pending` to `claimed` to `done`, with one claim record and an ownership ledger. An interrupted `handoff_pending` record tells recovery which exact successor role and message must be resumed.
+Phase 2 adds a mailbox under each run. Messages are immutable small records addressed to `relay`, `coordinator`, or `worker`; semantic payloads are separate hashed files. A message moves from `pending` to `claimed` to `done`, with one claim record and an ownership ledger. The incoming invariant is `message.recipient_role == capsule.role == endpoint.role == activation.role == ack.role`. An interrupted `handoff_pending` record tells recovery which exact successor role and message must be resumed.
 
 ## Process contract
 
@@ -28,7 +28,7 @@ Phase 2 adds a mailbox under each run. Messages are immutable small records addr
 
 `LaunchAuthority` derives command, repository working directory, and Luna High selection from the authoritative profile. Semantic routing is limited to the next role; command, shell, cwd, environment, model, reasoning, and runtime-root overrides are rejected.
 
-`AgentBackend` is the backend boundary. `SubprocessBackend` preserves the tested PID launcher. `CodexThreadBackend` uses an injected host control surface for bind, inspect, and short follow-up wakeups. The current local Codex app exposes list/read/send/wait operations for threads only as Agent-accessible host tools; ordinary Python has no direct callable surface. `HostBridgeRequest` therefore locks the target thread, endpoint, activation, provider mapping, and exact bootstrap-only text. The Agent performs the host call and returns a `HostBridgeReceipt`; the Kernel validates it before ownership transfer. A wakeup looks like `RelayHarness activation <id>. Read bootstrap capsule: <path>`.
+`AgentBackend` is the backend boundary. `SubprocessBackend` preserves the tested PID launcher. `CodexThreadBackend` uses an injected host control surface for bind, inspect, and short follow-up wakeups. The current local Codex app exposes list/read/send/wait operations for threads only as Agent-accessible host tools; ordinary Python has no direct callable surface. `HostBridgeRequest` therefore locks the target thread, endpoint, activation, provider mapping, and exact bootstrap-only text. The Agent performs the host call and returns a `HostBridgeReceipt`; the Kernel validates it before ownership transfer. `HandoffCoordinator` validates the current recipient against `capsule.role`, while outgoing routing is checked separately against `capsule.successor_role`. A wakeup looks like `RelayHarness activation <id>. Read bootstrap capsule: <path>`.
 
 An activated semantic Agent writes an `ActivationAck` containing activation, endpoint, role, run, turn, capsule identity, and capsule hash. The Kernel compares it with the expected durable record. A host turn completion is evidence that the doorbell was answered; it is not semantic workflow truth.
 

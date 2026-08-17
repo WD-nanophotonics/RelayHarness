@@ -6,7 +6,8 @@ from pathlib import Path
 
 from relay_harness.config import AgentConfig, ProjectProfile, RepositoryConfig, RuntimeConfig
 from relay_harness.errors import IntegrityError, SchemaError
-from relay_harness.handoff import HandoffCoordinator
+from relay_harness.endpoints import AgentEndpoint, ExecutionIdentity
+from relay_harness.handoff import HandoffCoordinator, validate_current_target, validate_successor_routing
 from relay_harness.mailbox import MailboxStore
 from relay_harness.model_policy import ModelEvidence
 from relay_harness.process import AgentLauncher, LaunchAuthority, ProcessHandle, StartupAck
@@ -49,15 +50,15 @@ class Phase2Tests(unittest.TestCase):
             runtime=RuntimeConfig(str(root / "runtime")),
         )
 
-    def make_capsule(self, paths, next_role="worker") -> tuple[BootstrapCapsule, Path]:
+    def make_capsule(self, paths, role="worker", successor_role="coordinator") -> tuple[BootstrapCapsule, Path]:
         capsule = BootstrapCapsule(
-            project_id="demo", run_id=paths.root.name, turn_id="turn_1", role="relay",
+            project_id="demo", run_id=paths.root.name, turn_id="turn_1", role=role,
             runtime_root=str(paths.root), profile_ref="profiles/demo.json", durable_state_refs={"objective": "state/objective.md"},
             semantic_ref="payloads/task.md", repository={"path": "repo", "branch": "main"},
             expected_git={"head": "abc", "branch": "main"}, output_contract={"result": "results/*.json"},
-            logging_contract={"journal": "logs/journal.jsonl"}, next_role=next_role, terminal_contract={"on_exit": "capture"},
+            logging_contract={"journal": "logs/journal.jsonl"}, successor_role=successor_role, terminal_contract={"on_exit": "capture"},
         )
-        path = paths.capsules / "turn_1_worker.json"
+        path = paths.capsules / f"turn_1_{role}.json"
         from relay_harness.storage import atomic_write_json
         atomic_write_json(path, capsule.to_dict())
         return capsule, path
@@ -113,7 +114,7 @@ class Phase2Tests(unittest.TestCase):
             launcher = RecordingLauncher()
             coordinator = HandoffCoordinator(layout, launcher)
             plan = coordinator.prepare(paths, message, capsule, "relay", 7)
-            self.assertEqual(plan.next_role, "worker")
+            self.assertEqual(plan.recipient_role, "worker")
             report = layout.inspect_recovery(paths.root.name)
             self.assertEqual(report["next_deterministic_action"], "launch_successor:worker:message_1")
             with self.assertRaises(IntegrityError):
@@ -126,6 +127,48 @@ class Phase2Tests(unittest.TestCase):
             self.assertEqual(layout.inspect_recovery(paths.root.name)["next_deterministic_action"], "continue_owner:worker:message_1")
             self.assertEqual(launcher.specs[0].command, tuple(profile.agent.command))
             self.assertEqual(launcher.specs[0].capsule_path, capsule_path)
+
+    def test_current_recipient_and_successor_role_invariants(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            layout = RuntimeLayout(self.make_profile(root))
+            paths = layout.new_run()
+            mailbox = layout.mailbox(paths)
+            capsule, capsule_path = self.make_capsule(paths, role="worker", successor_role="coordinator")
+            message = self.make_message(mailbox, paths, capsule_path, recipient="worker").seal()
+            validate_current_target(message, capsule)
+            endpoint = AgentEndpoint("worker-endpoint", "codex_thread", "worker", "demo", external_id="thread-w")
+            identity = ExecutionIdentity.new(paths.root.name, "turn_1", endpoint)
+            validate_current_target(message, capsule, endpoint, identity)
+            validate_successor_routing(capsule, "coordinator")
+            coordinator_capsule, coordinator_path = self.make_capsule(paths, role="coordinator", successor_role="worker")
+            coordinator_message = self.make_message(mailbox, paths, coordinator_path, recipient="coordinator").seal()
+            validate_current_target(coordinator_message, coordinator_capsule)
+            with self.assertRaises(IntegrityError):
+                validate_current_target(message, BootstrapCapsule(
+                    project_id="demo", run_id=paths.root.name, turn_id="turn_1", role="coordinator",
+                    runtime_root=str(paths.root), profile_ref="profiles/demo.json", durable_state_refs={}, semantic_ref=None,
+                    repository={"path": "repo", "branch": "main"}, expected_git={}, output_contract={"result": "x"},
+                    logging_contract={"journal": "x"}, successor_role="worker", terminal_contract={"on_exit": "capture"},
+                ))
+            with self.assertRaises(IntegrityError):
+                validate_successor_routing(capsule, "worker")
+            with self.assertRaises(IntegrityError):
+                validate_current_target(message, capsule, AgentEndpoint("coordinator-endpoint", "codex_thread", "coordinator", "demo", external_id="thread-c"), identity)
+
+    def test_terminal_successor_is_explicit_and_ack_target_is_current_role(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            layout = RuntimeLayout(self.make_profile(root))
+            paths = layout.new_run()
+            capsule, _ = self.make_capsule(paths, role="coordinator", successor_role=None)
+            validate_successor_routing(capsule, None)
+            endpoint = AgentEndpoint("coordinator-endpoint", "codex_thread", "coordinator", "demo", external_id="thread-c")
+            identity = ExecutionIdentity.new(paths.root.name, "turn_1", endpoint)
+            from relay_harness.schemas import MailboxMessage
+            message = MailboxMessage("m", paths.root.name, "turn_1", "worker", "coordinator", "result", "payloads/x", "capsules/x", "0" * 64).seal()
+            with self.assertRaises(IntegrityError):
+                validate_current_target(message, capsule, endpoint, ExecutionIdentity.new(paths.root.name, "turn_1", AgentEndpoint("worker-endpoint", "codex_thread", "worker", "demo", external_id="thread-w")))
 
     def test_task_result_roundtrip_and_external_transport_are_durable(self):
         with tempfile.TemporaryDirectory() as temporary:

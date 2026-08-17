@@ -149,6 +149,11 @@ class ProductizationTests(unittest.TestCase):
                     "activation_id": "a1", "endpoint_id": "e1", "role": "worker", "run_id": "run1",
                     "turn_id": "turn1", "capsule_id": "c1", "capsule_ref": "capsule.json",
                 }, capsule)
+            with self.assertRaises(IntegrityError):
+                ActivationAck("a1", "e1", "coordinator", "run1", "turn1", "c1", "capsule.json", sha256_file(capsule)).validate_against({
+                    "activation_id": "a1", "endpoint_id": "e1", "role": "worker", "run_id": "run1",
+                    "turn_id": "turn1", "capsule_id": "c1", "capsule_ref": "capsule.json",
+                }, capsule)
 
 
 if __name__ == "__main__":

@@ -148,11 +148,16 @@ class RuntimeLayout:
         manifest = read_json(paths.manifest)
         capsule_files = sorted(paths.capsules.glob("*.json"))
         capsules: list[dict[str, Any]] = []
+        legacy_capsules: list[dict[str, Any]] = []
         errors: list[str] = []
         for path in capsule_files:
             try:
-                capsule = BootstrapCapsule.from_dict(read_json(path))
-                capsules.append({"path": str(path), "role": capsule.role, "turn_id": capsule.turn_id, "next_role": capsule.next_role})
+                raw = read_json(path)
+                if raw.get("protocol_version") == "1" and "next_role" in raw:
+                    legacy_capsules.append({"path": str(path), "protocol_version": "1", "role": raw.get("role"), "turn_id": raw.get("turn_id"), "legacy_next_role": raw.get("next_role"), "resumable": False})
+                    continue
+                capsule = BootstrapCapsule.from_dict(raw)
+                capsules.append({"path": str(path), "protocol_version": capsule.protocol_version, "role": capsule.role, "turn_id": capsule.turn_id, "successor_role": capsule.successor_role, "resumable": True})
             except Exception as exc:  # inspection must preserve evidence rather than abort
                 errors.append(f"{path.name}: {exc}")
         task_files = sorted(paths.tasks.glob("*.json"))
@@ -165,9 +170,13 @@ class RuntimeLayout:
             except Exception as exc:
                 errors.append(f"{path.name}: {exc}")
         next_action = "no_owner_record"
+        if legacy_capsules:
+            next_action = "legacy_protocol_v1_requires_manual_migration"
         if ownership_records:
             latest = ownership_records[-1]
-            if latest["state"] == "handoff_pending":
+            if legacy_capsules:
+                next_action = "legacy_protocol_v1_requires_manual_migration"
+            elif latest["state"] == "handoff_pending":
                 next_action = f"launch_successor:{latest['successor_role']}:{latest['message_id']}"
             elif latest["state"] == "owned":
                 next_action = f"continue_owner:{latest['current_role']}:{latest['message_id']}"
@@ -182,13 +191,14 @@ class RuntimeLayout:
                 activation_records.append(read_json(activation_path))
         except (FileNotFoundError, RecoveryError):
             pass
-        complete = bool(capsules) and not errors and all(item.get("next_role") is not None for item in capsules[-1:])
+        complete = bool(capsules) and not legacy_capsules and not errors and all(item.get("successor_role") is not None for item in capsules[-1:])
         return {
             "project_id": manifest.get("project_id"),
             "run_id": manifest.get("run_id"),
             "status": manifest.get("status"),
             "manifest_present": True,
             "capsules": capsules,
+            "legacy_capsules": legacy_capsules,
             "tasks": [str(path) for path in task_files],
             "results": [str(path) for path in result_files],
             "claims": [str(path) for path in sorted(paths.claims.glob("*.json"))],

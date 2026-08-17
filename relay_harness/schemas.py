@@ -16,6 +16,8 @@ from .storage import canonical_json, sha256_bytes
 
 
 PROTOCOL_VERSION = "1"
+CAPSULE_PROTOCOL_VERSION = "2"
+LIFECYCLE_ROLES = {"relay", "coordinator", "worker"}
 
 
 def utc_now() -> str:
@@ -40,11 +42,11 @@ class BootstrapCapsule:
     expected_git: dict[str, str | None]
     output_contract: dict[str, Any]
     logging_contract: dict[str, Any]
-    next_role: str | None
+    successor_role: str | None
     terminal_contract: dict[str, Any]
     required_model: str = REQUIRED_MODEL
     required_reasoning: str = REQUIRED_REASONING
-    protocol_version: str = PROTOCOL_VERSION
+    protocol_version: str = CAPSULE_PROTOCOL_VERSION
     capsule_id: str = field(default_factory=lambda: new_id("capsule"))
     created_at: str = field(default_factory=utc_now)
 
@@ -54,8 +56,10 @@ class BootstrapCapsule:
         required = [self.project_id, self.run_id, self.turn_id, self.role, self.runtime_root, self.profile_ref]
         if any(not item for item in required):
             raise SchemaError("bootstrap capsule has missing identity fields")
-        if self.protocol_version != PROTOCOL_VERSION:
+        if self.protocol_version != CAPSULE_PROTOCOL_VERSION:
             raise SchemaError(f"unsupported capsule protocol: {self.protocol_version}")
+        if self.role not in LIFECYCLE_ROLES or (self.successor_role is not None and self.successor_role not in LIFECYCLE_ROLES):
+            raise SchemaError("bootstrap capsule has invalid current or successor role")
         if self.required_model != REQUIRED_MODEL or self.required_reasoning != REQUIRED_REASONING:
             raise SchemaError("bootstrap capsule must require Luna High")
         if not self.output_contract or not self.logging_contract or not self.terminal_contract:
@@ -67,6 +71,8 @@ class BootstrapCapsule:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "BootstrapCapsule":
+        if data.get("protocol_version") == PROTOCOL_VERSION and "next_role" in data:
+            raise SchemaError("legacy protocol-v1 capsule is inspect-only and cannot be resumed as protocol-v2")
         values = dict(data)
         values.pop("kind", None)
         try:
@@ -75,6 +81,42 @@ class BootstrapCapsule:
             raise SchemaError(f"invalid bootstrap capsule: {exc}") from exc
         result.validate()
         return result
+
+    @classmethod
+    def create(
+        cls,
+        project_id: str,
+        run_id: str,
+        turn_id: str,
+        role: str,
+        successor_role: str | None,
+        runtime_root: str,
+        profile_ref: str,
+        durable_state_refs: dict[str, str],
+        semantic_ref: str | None,
+        repository: dict[str, str | None],
+        expected_git: dict[str, str | None],
+        output_contract: dict[str, Any],
+        logging_contract: dict[str, Any],
+        terminal_contract: dict[str, Any],
+    ) -> "BootstrapCapsule":
+        """Kernel-side builder for lifecycle facts; semantic input stays referenced."""
+        return cls(
+            project_id=project_id,
+            run_id=run_id,
+            turn_id=turn_id,
+            role=role,
+            runtime_root=runtime_root,
+            profile_ref=profile_ref,
+            durable_state_refs=durable_state_refs,
+            semantic_ref=semantic_ref,
+            repository=repository,
+            expected_git=expected_git,
+            output_contract=output_contract,
+            logging_contract=logging_contract,
+            successor_role=successor_role,
+            terminal_contract=terminal_contract,
+        )
 
 
 @dataclass

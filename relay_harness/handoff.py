@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .errors import IntegrityError
+from .endpoints import AgentEndpoint, ExecutionIdentity
 from .mailbox import MailboxStore
 from .model_policy import ModelEvidence
 from .process import AgentLauncher, LaunchAuthority, LaunchSpec, ProcessHandle, StartupAck, verify_startup_ack
@@ -19,7 +20,7 @@ class HandoffPlan:
     run_id: str
     message_id: str
     current_role: str
-    next_role: str
+    recipient_role: str
     turn_id: str
     launch_spec: LaunchSpec
     ownership_ref: Path
@@ -40,12 +41,13 @@ class HandoffCoordinator:
         capsule: BootstrapCapsule,
         current_role: str,
         current_pid: int | None,
+        successor_endpoint: AgentEndpoint | None = None,
+        successor_identity: ExecutionIdentity | None = None,
         semantic_routing: dict[str, object] | None = None,
     ) -> HandoffPlan:
         message.validate()
         capsule.validate()
-        if message.recipient_role != capsule.next_role:
-            raise IntegrityError("message recipient and capsule next_role disagree")
+        validate_current_target(message, capsule, successor_endpoint, successor_identity)
         if message.run_id != capsule.run_id or message.turn_id != capsule.turn_id:
             raise IntegrityError("message and capsule identity disagree")
         spec = self.authority.build_spec(capsule, paths.root / message.capsule_ref, semantic_routing)
@@ -71,20 +73,20 @@ class HandoffCoordinator:
         ack: StartupAck,
         model_evidence: ModelEvidence,
     ) -> Path:
-        if ack.role != plan.next_role or Path(ack.capsule_path).name != plan.launch_spec.capsule_path.name:
+        if ack.role != plan.recipient_role or capsule.role != plan.recipient_role or Path(ack.capsule_path).name != plan.launch_spec.capsule_path.name:
             raise IntegrityError("successor ACK role or capsule mismatch")
         verify_startup_ack(ack, handle)
         self.launcher.verify_model(model_evidence)
         mailbox = self.layout.mailbox(paths)
-        mailbox.claim(plan.message_id, plan.next_role, handle.pid, plan.turn_id)
+        mailbox.claim(plan.message_id, plan.recipient_role, handle.pid, plan.turn_id)
         record = OwnershipRecord(
             run_id=plan.run_id,
             turn_id=plan.turn_id,
-            current_role=plan.next_role,
+            current_role=plan.recipient_role,
             message_id=plan.message_id,
             owner_pid=handle.pid,
             state="owned",
-            successor_role=None,
+            successor_role=capsule.successor_role,
             predecessor_role=plan.current_role,
             updated_at=utc_now(),
         )
@@ -100,3 +102,29 @@ class HandoffCoordinator:
         if record.state == "owned":
             return f"continue_owner:{record.current_role}:{record.message_id}"
         return "no_action"
+
+
+def validate_current_target(
+    message: MailboxMessage,
+    capsule: BootstrapCapsule,
+    endpoint: AgentEndpoint | None = None,
+    identity: ExecutionIdentity | None = None,
+) -> None:
+    """Validate the current consumer chain before any successor activation."""
+    message.validate()
+    capsule.validate()
+    if message.recipient_role != capsule.role:
+        raise IntegrityError("mailbox recipient and capsule current role disagree")
+    if endpoint is not None and endpoint.role != capsule.role:
+        raise IntegrityError("endpoint role and capsule current role disagree")
+    if identity is not None and identity.role != capsule.role:
+        raise IntegrityError("execution identity role and capsule current role disagree")
+    if endpoint is not None and identity is not None and identity.endpoint_id != endpoint.endpoint_id:
+        raise IntegrityError("execution identity endpoint and target endpoint disagree")
+
+
+def validate_successor_routing(capsule: BootstrapCapsule, outgoing_recipient_role: str | None) -> None:
+    """Validate the declared post-completion routing or terminal decision."""
+    capsule.validate()
+    if outgoing_recipient_role != capsule.successor_role:
+        raise IntegrityError("outgoing mailbox recipient disagrees with capsule successor_role")
