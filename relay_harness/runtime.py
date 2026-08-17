@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from .config import ProjectProfile
 from .errors import IntegrityError, RecoveryError
+from .endpoints import EndpointRegistry
 from .mailbox import MailboxPaths, MailboxStore
 from .schemas import BootstrapCapsule, Claim, OwnershipRecord, ResultCapsule, TaskCapsule, utc_now
 from .storage import atomic_write_json, read_json, sha256_file
@@ -55,10 +56,10 @@ class RunPaths:
 
 
 class RuntimeLayout:
-    def __init__(self, profile: ProjectProfile):
+    def __init__(self, profile: ProjectProfile, root_override: str | None = None):
         profile.validate()
         self.profile = profile
-        self.root = Path(profile.runtime.root)
+        self.root = Path(root_override or profile.runtime.root)
         self.project_state = self.root / "state" / profile.project_id
         self.runs_root = self.root / "runs"
 
@@ -120,6 +121,9 @@ class RuntimeLayout:
 
     def mailbox(self, paths: RunPaths) -> MailboxStore:
         return MailboxStore(MailboxPaths(paths.root))
+
+    def endpoint_registry(self) -> EndpointRegistry:
+        return EndpointRegistry(self.root)
 
     def write_ownership(self, paths: RunPaths, record: OwnershipRecord) -> Path:
         record.validate()
@@ -204,3 +208,30 @@ class RuntimeLayout:
         manifest["terminal_ref"] = str(target)
         atomic_write_json(paths.manifest, manifest)
         return target
+
+    def status_summary(self) -> dict[str, Any]:
+        manifests = sorted(self.runs_root.glob("*/run.json"))
+        latest = read_json(manifests[-1]) if manifests else None
+        endpoints = []
+        try:
+            endpoints = [endpoint.to_dict() for endpoint in self.endpoint_registry().list()]
+        except (FileNotFoundError, RecoveryError):
+            endpoints = []
+        ownership: dict[str, Any] | None = None
+        if latest:
+            paths = RunPaths(self.runs_root / latest["run_id"])
+            owner_files = sorted(paths.owners.glob("*.json"))
+            if owner_files:
+                ownership = OwnershipRecord.from_dict(read_json(owner_files[-1])).to_dict()
+        endpoint_by_role = {item["role"]: item for item in endpoints}
+        return {
+            "project": self.profile.project_id,
+            "run": latest.get("run_id") if latest else None,
+            "mode": self.profile.policy.mode,
+            "run_status": latest.get("status") if latest else "not_started",
+            "coordinator": endpoint_by_role.get("coordinator"),
+            "worker": endpoint_by_role.get("worker"),
+            "current_owner": ownership,
+            "next_expected_role": ownership.get("successor_role") if ownership else None,
+            "health": "awaiting_coordinator" if latest and latest.get("status") == "awaiting_coordinator" else "unknown" if not latest else "running",
+        }

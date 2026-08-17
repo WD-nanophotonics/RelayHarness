@@ -158,6 +158,9 @@ class Claim:
     owner_role: str
     owner_pid: int | None
     turn_id: str
+    owner_endpoint_id: str | None = None
+    owner_activation_id: str | None = None
+    owner_backend_type: str | None = None
     acquired_at: str = field(default_factory=utc_now)
     released_at: str | None = None
 
@@ -260,6 +263,9 @@ class OwnershipRecord:
     state: str
     successor_role: str | None = None
     predecessor_role: str | None = None
+    endpoint_id: str | None = None
+    activation_id: str | None = None
+    backend_type: str | None = None
     updated_at: str = field(default_factory=utc_now)
 
     def validate(self) -> None:

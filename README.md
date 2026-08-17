@@ -1,6 +1,6 @@
 # RelayHarness
 
-RelayHarness is a reusable local runtime for connecting a supervisory AI conversation to arbitrary project-specific AI agents through durable, recoverable, file-backed handoffs.
+RelayHarness is an independent, installable local runtime for enrolling existing project Agents into durable, recoverable, file-backed multi-Agent workflows. RelayHarness is the product and deterministic Kernel; it is not the Coordinator Agent.
 
 This repository is the generic foundation only. It contains no Mechanics, GenericChess, Gmail, Chrome, browser automation, or project-specific engineering logic.
 
@@ -8,11 +8,19 @@ This repository is the generic foundation only. It contains no Mechanics, Generi
 
 The deterministic Kernel owns structure: runtime directories, identities, manifests, atomic writes, hashes, claims, process identity, model-policy checks, journal entries, incident evidence, and recovery inspection. It does not decide engineering work.
 
-Relay Agent A will eventually be a real AI process. It will interpret supervisory input and worker results, choose a bounded next task, and make semantic CONTINUE / COMPLETE / HUMAN_REQUIRED decisions. This phase defines its durable execution contract but does not fake its intelligence with a Python checklist.
+The Coordinator Agent is a semantic endpoint managed by RelayHarness. It interprets supervisory input and worker results, chooses bounded next work, and makes semantic CONTINUE / COMPLETE / HUMAN_REQUIRED decisions. The Project Worker Agent is another semantic endpoint. Existing project Agents can enroll as Workers; target repositories normally need only a small profile, not RelayHarness source copies.
 
 Project Agent B will eventually be a real project-specific AI process. It will perform semantic work inside a configured repository and produce a durable result. The Kernel will own launch, ACK, liveness, ownership transfer, and terminal capture; B will never need to remember how to keep the workflow alive.
 
-The rule is simple: hard mechanism belongs to Python, semantic decisions belong to agents, and continuity belongs to durable files.
+The rule is simple: hard mechanism belongs to Python, semantic decisions belong to Agents, and continuity belongs to durable files. Roles, endpoints, and activations are distinct: one long-lived Codex thread endpoint may have many bounded RelayHarness activations.
+
+```text
+Existing project Agent --engage--> RelayHarness runtime
+                                      |
+                       Coordinator endpoint ↔ Worker endpoint
+                                      |
+                         deterministic mailbox + Kernel
+```
 
 ## Project profiles
 
@@ -26,6 +34,8 @@ The rule is simple: hard mechanism belongs to Python, semantic decisions belong 
 - bounded/continuous policy, safe-stop behavior, turn limits, Git policy, push policy, and safety constraints.
 
 See [`docs/project-profile.example.json`](docs/project-profile.example.json). No current repository path or domain assumption is embedded in the schema.
+
+Machine/product configuration is separate from the small project profile. `InstallationConfig` can hold reusable runtime location, coordinator backend strategy, provider model mappings such as logical `Luna` → provider `gpt-5.6-luna`, and transport defaults. Project profiles hold repository identity, policy, safety constraints, and endpoint/backend choices.
 
 ## Durable runtime
 
@@ -80,6 +90,8 @@ The Kernel depends only on `SupervisoryTransport` (`read_latest`, `submit`, `ver
 
 ```text
 relayharness init <project>
+relayharness engage <project> --worker-endpoint-id <id> [--worker-external-id <thread>]
+relayharness bind-coordinator <project> <run_id> --coordinator-endpoint-id <id> --coordinator-external-id <thread>
 relayharness start <project>
 relayharness stop <project> <run_id>
 relayharness status <project>
@@ -89,6 +101,12 @@ relayharness doctor <project>
 ```
 
 `start` creates a durable run; it does not pretend to be Relay Agent A or launch project work in this foundation phase.
+
+`engage` enrolls the already-existing Worker endpoint and creates an external run. It does not infer Agent identity from a window title or PID. `status` summarizes coordinator/worker endpoints, current owner, run state, and next expected role rather than dumping the journal.
+
+The filesystem mailbox is the semantic channel. A Codex thread/task backend is only a doorbell: its wakeup text is a short activation ID plus a bootstrap capsule path. It must not carry the task nonce or a large prompt.
+
+The managed Codex task surface has been capability-tested with an existing idle thread: it received only a bootstrap path, read the durable payload, and returned the payload nonce acknowledgement. This is endpoint wakeup evidence, not a full two-endpoint mailbox round-trip; the latter remains a bounded next step after the product API is hosted by a real Agent.
 
 ## Principles
 

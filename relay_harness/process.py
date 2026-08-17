@@ -30,14 +30,20 @@ class ProcessHandle:
     pid: int
     process: subprocess.Popen[str]
     started_at: str
+    endpoint_id: str | None = None
+    activation_id: str | None = None
 
 
 @dataclass(frozen=True)
 class StartupAck:
-    pid: int
+    pid: int | None
     role: str
     capsule_path: str
     acknowledged_at: str
+    endpoint_id: str | None = None
+    activation_id: str | None = None
+    backend_type: str = "subprocess"
+    external_execution_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -50,8 +56,12 @@ class LivenessEvidence:
 
 def verify_startup_ack(ack: StartupAck, handle: ProcessHandle) -> None:
     """Verify that the acknowledged process is the process the kernel launched."""
-    if ack.pid != handle.pid:
+    if ack.pid is not None and ack.pid != handle.pid:
         raise RuntimeError(f"startup ACK PID mismatch: expected {handle.pid}, got {ack.pid}")
+    if ack.endpoint_id and handle.endpoint_id and ack.endpoint_id != handle.endpoint_id:
+        raise RuntimeError("startup ACK endpoint mismatch")
+    if ack.activation_id and handle.activation_id and ack.activation_id != handle.activation_id:
+        raise RuntimeError("startup ACK activation mismatch")
 
 
 def capture_exit(handle: ProcessHandle) -> dict[str, int | None]:

@@ -97,12 +97,21 @@ class MailboxStore:
                 return message, state, path
         raise FileNotFoundError(message_id)
 
-    def claim(self, message_id: str, recipient_role: str, owner_pid: int | None, turn_id: str) -> Path:
+    def claim(
+        self,
+        message_id: str,
+        recipient_role: str,
+        owner_pid: int | None,
+        turn_id: str,
+        owner_endpoint_id: str | None = None,
+        owner_activation_id: str | None = None,
+        owner_backend_type: str | None = None,
+    ) -> Path:
         message, state, source = self.load(message_id, recipient_role)
         if state == "done":
             raise IntegrityError(f"message already completed: {message_id}")
         claim_path = self.paths.claims / f"message_{message_id}.json"
-        claim = Claim("message", message_id, recipient_role, owner_pid, turn_id)
+        claim = Claim("message", message_id, recipient_role, owner_pid, turn_id, owner_endpoint_id, owner_activation_id, owner_backend_type)
         try:
             atomic_create_json(claim_path, claim.to_dict())
         except FileExistsError:

@@ -19,3 +19,7 @@ class ModelPolicyError(RelayHarnessError):
 
 class RecoveryError(RelayHarnessError):
     """Durable state cannot be reconstructed safely."""
+
+
+class BackendUnavailable(RelayHarnessError):
+    """A requested endpoint backend is not available through the current host adapter."""

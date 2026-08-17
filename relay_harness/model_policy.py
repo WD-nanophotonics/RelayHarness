@@ -16,6 +16,7 @@ REQUIRED_REASONING = "High"
 class ModelRequest:
     model: str
     reasoning: str
+    provider_model_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,7 @@ class ModelEvidence:
     model: str
     reasoning: str
     source: str
+    provider_model_id: str | None = None
 
 
 class ModelPolicy:

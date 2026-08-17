@@ -8,7 +8,10 @@
   "agent": {
     "command": ["codex", "exec"],
     "model": "Luna",
-    "reasoning": "High"
+    "reasoning": "High",
+    "backend": "subprocess",
+    "provider_model_id": null,
+    "backend_options": {}
   },
   "runtime": {
     "root": ".relayharness"
@@ -24,5 +27,6 @@
     "git_cleanliness": "observe",
     "push_required": false,
     "safety_constraints": []
-  }
+  },
+  "endpoint_overrides": {}
 }
