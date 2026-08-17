@@ -91,7 +91,7 @@ class LaunchAuthority:
         if protected:
             raise IntegrityError(f"semantic routing attempted protected launch override: {sorted(protected)}")
         next_role = semantic_routing.get("next_role", capsule.next_role)
-        if next_role not in {"relay", "worker"}:
+        if next_role not in {"relay", "coordinator", "worker"}:
             raise IntegrityError(f"invalid semantic next role: {next_role!r}")
         repository = Path(self.profile.repository.path).resolve()
         return LaunchSpec(

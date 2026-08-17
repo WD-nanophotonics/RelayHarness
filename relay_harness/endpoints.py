@@ -158,6 +158,14 @@ class EndpointRegistry:
         atomic_create_json(target, activation.to_dict())
         return target
 
+    def update_activation(self, activation: ActivationRecord) -> Path:
+        activation.validate()
+        target = self.activations / f"{activation.identity.activation_id}.json"
+        if not target.exists():
+            raise FileNotFoundError(target)
+        atomic_write_json(target, activation.to_dict())
+        return target
+
     def latest_activation(self, role: str) -> ActivationRecord | None:
         records = []
         for path in self.activations.glob("*.json"):
@@ -173,6 +181,10 @@ class CodexThreadControl(Protocol):
     def send_follow_up(self, thread_id: str, prompt: str, model: str | None, thinking: str | None) -> str: ...
 
     def inspect(self, thread_id: str) -> dict[str, Any]: ...
+
+    def wait(self, thread_id: str) -> dict[str, Any]: ...
+
+    def read(self, thread_id: str) -> dict[str, Any]: ...
 
 
 class AgentBackend(ABC):

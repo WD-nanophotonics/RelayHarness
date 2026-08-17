@@ -197,7 +197,7 @@ class RuntimeLayout:
                     state: [str(path) for path in sorted((paths.mailbox / role / state).glob("*.json"))]
                     for state in ("pending", "claimed", "done")
                 }
-                for role in ("relay", "worker")
+                for role in ("relay", "coordinator", "worker")
             },
             "ownership": [str(path) for path in ownership_files],
             "ownership_records": ownership_records,
@@ -244,5 +244,10 @@ class RuntimeLayout:
             "worker": endpoint_by_role.get("worker"),
             "current_owner": ownership,
             "next_expected_role": ownership.get("successor_role") if ownership else None,
-            "health": "awaiting_coordinator" if latest and latest.get("status") == "awaiting_coordinator" else "unknown" if not latest else "running",
+            "health": (
+                "unknown" if not latest else
+                "awaiting_coordinator" if latest.get("status") == "awaiting_coordinator" else
+                latest.get("status") if latest.get("status") in {"completed", "failed", "stopped", "waiting_for_external_audit"} else
+                "running"
+            ),
         }

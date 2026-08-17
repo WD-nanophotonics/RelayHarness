@@ -9,6 +9,7 @@ from relay_harness.config import AgentConfig, InstallationConfig, ProjectProfile
 from relay_harness.endpoints import ActivationRecord, AgentEndpoint, EndpointRegistry, ExecutionIdentity
 from relay_harness.engagement import EngagementService
 from relay_harness.errors import IntegrityError
+from relay_harness.host_bridge import ActivationAck, HostBridgeReceipt
 from relay_harness.schemas import OwnershipRecord
 from relay_harness.storage import read_json
 
@@ -83,6 +84,71 @@ class ProductizationTests(unittest.TestCase):
             self.assertEqual(control.sent[0][2:], ("gpt-5.6-luna", "High"))
             self.assertIn("Read bootstrap capsule:", control.sent[0][1])
             self.assertNotIn("nonce", control.sent[0][1])
+
+    def test_agent_mediated_host_bridge_locks_target_and_activation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            profile = self.profile(Path(temporary))
+            control = FakeCodexControl()
+            backend = CodexThreadBackend(profile, control, InstallationConfig(provider_models={"Luna": "gpt-5.6-luna"}))
+            endpoint = AgentEndpoint("coordinator-endpoint", "codex_thread", "coordinator", "demo", external_id="thread-coordinator")
+            identity = ExecutionIdentity.new("run_1", "turn_1", endpoint)
+            request = backend.build_host_bridge_request(endpoint, identity, ".relayharness/capsules/turn_1_coordinator.json")
+            self.assertEqual(request.thread_id, "thread-coordinator")
+            self.assertIn("Read bootstrap capsule:", request.wakeup_text)
+            with self.assertRaises(IntegrityError):
+                HostBridgeReceipt(
+                    request.request_id, request.operation, request.endpoint_id, "other-thread", request.activation_id,
+                    request.wakeup_text, True, "submission-1", {"thread_id": "other-thread"},
+                ).validate_for(request)
+            with self.assertRaises(IntegrityError):
+                HostBridgeReceipt(
+                    request.request_id, request.operation, request.endpoint_id, request.thread_id, request.activation_id,
+                    "arbitrary semantic task", True, "submission-1", {"thread_id": request.thread_id},
+                ).validate_for(request)
+            receipt = HostBridgeReceipt(
+                request.request_id, request.operation, request.endpoint_id, request.thread_id, request.activation_id,
+                request.wakeup_text, True, "submission-1", {"thread_id": request.thread_id, "submission_id": "submission-1", "accepted": True},
+            )
+            activation = backend.accept_host_bridge_receipt(endpoint, identity, request, receipt)
+            self.assertEqual(activation.backend_evidence["submission_id"], "submission-1")
+
+    def test_coordinator_mailbox_role_is_backward_compatible(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            profile = self.profile(root)
+            service = EngagementService(profile)
+            worker = AgentEndpoint("worker-endpoint", "codex_thread", "worker", "demo", external_id="thread-worker")
+            paths, _ = service.enroll_current_worker(worker)
+            coordinator = AgentEndpoint("coordinator-endpoint", "codex_thread", "coordinator", "demo", external_id="thread-coordinator")
+            service.bind_coordinator(paths, coordinator)
+            mailbox = service.layout.mailbox(paths)
+            self.assertTrue((paths.mailbox / "coordinator" / "pending").is_dir())
+            payload_ref, digest = mailbox.publish_payload("coordinator-note.md", b"mail")
+            capsule = paths.capsules / "turn_1_coordinator.json"
+            capsule.write_text("{}", encoding="utf-8")
+            from relay_harness.schemas import MailboxMessage
+            message = MailboxMessage(
+                "coordinator-message", paths.root.name, "turn_1", "worker", "coordinator", "result",
+                payload_ref, "capsules/turn_1_coordinator.json", digest,
+            )
+            mailbox.publish_message(message)
+            self.assertEqual(mailbox.state("coordinator-message", "coordinator"), "pending")
+
+    def test_activation_ack_requires_exact_capsule_identity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            capsule = Path(temporary) / "capsule.json"
+            capsule.write_text('{"kind":"bootstrap"}\n', encoding="utf-8")
+            from relay_harness.storage import sha256_file
+            ack = ActivationAck("a1", "e1", "worker", "run1", "turn1", "c1", "capsule.json", sha256_file(capsule))
+            ack.validate_against({
+                "activation_id": "a1", "endpoint_id": "e1", "role": "worker", "run_id": "run1",
+                "turn_id": "turn1", "capsule_id": "c1", "capsule_ref": "capsule.json",
+            }, capsule)
+            with self.assertRaises(IntegrityError):
+                ActivationAck("a2", "e1", "worker", "run1", "turn1", "c1", "capsule.json", sha256_file(capsule)).validate_against({
+                    "activation_id": "a1", "endpoint_id": "e1", "role": "worker", "run_id": "run1",
+                    "turn_id": "turn1", "capsule_id": "c1", "capsule_ref": "capsule.json",
+                }, capsule)
 
 
 if __name__ == "__main__":

@@ -228,7 +228,7 @@ class MailboxMessage:
             raise SchemaError("unsupported mailbox message protocol")
         if not all([self.message_id, self.run_id, self.turn_id, self.sender_role, self.recipient_role, self.message_kind, self.payload_ref, self.capsule_ref, self.payload_sha256]):
             raise SchemaError("mailbox message has missing fields")
-        if self.sender_role == self.recipient_role or self.recipient_role not in {"relay", "worker"}:
+        if self.sender_role == self.recipient_role or self.recipient_role not in {"relay", "coordinator", "worker"}:
             raise SchemaError("mailbox message has invalid sender/recipient roles")
         if len(self.payload_sha256) != 64:
             raise SchemaError("mailbox message payload hash is not SHA-256")

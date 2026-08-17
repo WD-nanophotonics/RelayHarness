@@ -11,6 +11,9 @@ from .schemas import Claim, MailboxMessage, utc_now
 from .storage import atomic_create_bytes, atomic_create_json, atomic_write_json, read_json, sha256_bytes, sha256_file
 
 
+MAILBOX_ROLES = ("relay", "coordinator", "worker")
+
+
 @dataclass(frozen=True)
 class MailboxPaths:
     run_root: Path
@@ -32,14 +35,14 @@ class MailboxPaths:
         return self.run_root / "claims"
 
     def create(self) -> None:
-        for role in ("relay", "worker"):
+        for role in MAILBOX_ROLES:
             for state in ("pending", "claimed", "done"):
                 (self.mailbox / role / state).mkdir(parents=True, exist_ok=True)
         for path in (self.payloads, self.messages, self.claims):
             path.mkdir(parents=True, exist_ok=True)
 
     def state_path(self, recipient_role: str, state: str, message_id: str) -> Path:
-        if recipient_role not in {"relay", "worker"} or state not in {"pending", "claimed", "done"}:
+        if recipient_role not in MAILBOX_ROLES or state not in {"pending", "claimed", "done"}:
             raise ValueError("invalid mailbox role or state")
         return self.mailbox / recipient_role / state / f"{message_id}.json"
 

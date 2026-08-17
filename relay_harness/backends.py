@@ -8,6 +8,7 @@ from typing import Any
 from .config import InstallationConfig, ProjectProfile
 from .endpoints import AgentBackend, AgentEndpoint, ActivationRecord, CodexThreadControl, ExecutionIdentity
 from .errors import BackendUnavailable, IntegrityError
+from .host_bridge import HostBridgeReceipt, HostBridgeRequest
 from .model_policy import ModelEvidence, ModelPolicy, ModelRequest
 from .process import AgentLauncher, LaunchAuthority
 from .schemas import BootstrapCapsule
@@ -84,6 +85,50 @@ class CodexThreadBackend(AgentBackend):
         submission_id = self.control.send_follow_up(endpoint.external_id, self.wakeup_text(identity, capsule_ref), provider_model, self.profile.agent.reasoning)
         identity.external_execution_id = submission_id
         return ActivationRecord(identity, "starting", backend_evidence={"thread_id": endpoint.external_id, "submission_id": submission_id, "wakeup": self.wakeup_text(identity, capsule_ref)})
+
+    def build_host_bridge_request(self, endpoint: AgentEndpoint, identity: ExecutionIdentity, capsule_ref: str) -> HostBridgeRequest:
+        endpoint = self.bind(endpoint)
+        provider_model = self.installation.provider_models.get(self.profile.agent.model)
+        if not provider_model:
+            raise BackendUnavailable(f"no provider model mapping for logical model {self.profile.agent.model}")
+        request = HostBridgeRequest(
+            operation="send_follow_up",
+            endpoint_id=endpoint.endpoint_id,
+            thread_id=str(endpoint.external_id),
+            activation_id=identity.activation_id,
+            wakeup_text=self.wakeup_text(identity, capsule_ref),
+            provider_model_id=provider_model,
+            reasoning=self.profile.agent.reasoning,
+        )
+        request.validate()
+        return request
+
+    def accept_host_bridge_receipt(
+        self,
+        endpoint: AgentEndpoint,
+        identity: ExecutionIdentity,
+        request: HostBridgeRequest,
+        receipt: HostBridgeReceipt,
+    ) -> ActivationRecord:
+        endpoint = self.bind(endpoint)
+        if request.endpoint_id != endpoint.endpoint_id or request.thread_id != endpoint.external_id:
+            raise IntegrityError("host bridge request endpoint mismatch")
+        if request.activation_id != identity.activation_id:
+            raise IntegrityError("host bridge request activation mismatch")
+        receipt.validate_for(request)
+        identity.external_execution_id = receipt.submission_id
+        return ActivationRecord(
+            identity,
+            "starting",
+            backend_evidence={
+                "thread_id": endpoint.external_id,
+                "submission_id": receipt.submission_id,
+                "request_id": request.request_id,
+                "wakeup": request.wakeup_text,
+                "host_evidence": receipt.evidence,
+            },
+            ack_verified=False,
+        )
 
     def inspect_status(self, endpoint: AgentEndpoint) -> dict[str, Any]:
         endpoint = self.bind(endpoint)

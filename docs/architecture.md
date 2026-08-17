@@ -20,7 +20,7 @@ Task and result capsules carry their own run/turn identity and references to lar
 
 `RuntimeLayout.inspect_recovery` is intentionally conservative. It reconstructs what files exist, parses every capsule, reports malformed evidence, and identifies whether a continuation is structurally plausible. It does not infer what A should think, retry a failed process, or certify a successful crash-recovery run. Those are future bounded phases with explicit tests.
 
-Phase 2 adds a mailbox under each run. Messages are immutable small records addressed to exactly `relay` or `worker`; semantic payloads are separate hashed files. A message moves from `pending` to `claimed` to `done`, with one claim record and an ownership ledger. An interrupted `handoff_pending` record tells recovery which exact successor role and message must be resumed.
+Phase 2 adds a mailbox under each run. Messages are immutable small records addressed to `relay`, `coordinator`, or `worker`; semantic payloads are separate hashed files. A message moves from `pending` to `claimed` to `done`, with one claim record and an ownership ledger. An interrupted `handoff_pending` record tells recovery which exact successor role and message must be resumed.
 
 ## Process contract
 
@@ -28,7 +28,9 @@ Phase 2 adds a mailbox under each run. Messages are immutable small records addr
 
 `LaunchAuthority` derives command, repository working directory, and Luna High selection from the authoritative profile. Semantic routing is limited to the next role; command, shell, cwd, environment, model, reasoning, and runtime-root overrides are rejected.
 
-`AgentBackend` is the backend boundary. `SubprocessBackend` preserves the tested PID launcher. `CodexThreadBackend` uses an injected host control surface for bind, inspect, and short follow-up wakeups. The current local Codex app exposes list/read/send/wait operations for threads; the Python runtime does not guess or embed MCP calls, so a host bridge must be supplied. A wakeup looks like `RelayHarness activation <id>. Read bootstrap capsule: <path>`.
+`AgentBackend` is the backend boundary. `SubprocessBackend` preserves the tested PID launcher. `CodexThreadBackend` uses an injected host control surface for bind, inspect, and short follow-up wakeups. The current local Codex app exposes list/read/send/wait operations for threads only as Agent-accessible host tools; ordinary Python has no direct callable surface. `HostBridgeRequest` therefore locks the target thread, endpoint, activation, provider mapping, and exact bootstrap-only text. The Agent performs the host call and returns a `HostBridgeReceipt`; the Kernel validates it before ownership transfer. A wakeup looks like `RelayHarness activation <id>. Read bootstrap capsule: <path>`.
+
+An activated semantic Agent writes an `ActivationAck` containing activation, endpoint, role, run, turn, capsule identity, and capsule hash. The Kernel compares it with the expected durable record. A host turn completion is evidence that the doorbell was answered; it is not semantic workflow truth.
 
 ## Incident evidence
 
