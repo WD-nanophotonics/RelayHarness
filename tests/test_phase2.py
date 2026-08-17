@@ -170,6 +170,10 @@ class Phase2Tests(unittest.TestCase):
             with self.assertRaises(IntegrityError):
                 validate_current_target(message, capsule, endpoint, ExecutionIdentity.new(paths.root.name, "turn_1", AgentEndpoint("worker-endpoint", "codex_thread", "worker", "demo", external_id="thread-w")))
 
+            layout.write_bootstrap(paths, capsule)
+            report = layout.inspect_recovery(paths.root.name)
+            self.assertTrue(report["continuation_structurally_complete"])
+
     def test_task_result_roundtrip_and_external_transport_are_durable(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

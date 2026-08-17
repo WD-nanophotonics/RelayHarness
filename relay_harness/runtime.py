@@ -169,12 +169,17 @@ class RuntimeLayout:
                 ownership_records.append(OwnershipRecord.from_dict(read_json(path)).to_dict())
             except Exception as exc:
                 errors.append(f"{path.name}: {exc}")
+        terminal_statuses = {"completed", "failed", "stopped", "waiting_for_external_audit"}
         next_action = "no_owner_record"
-        if legacy_capsules:
+        if manifest.get("status") in terminal_statuses:
+            next_action = "no_action"
+        elif legacy_capsules:
             next_action = "legacy_protocol_v1_requires_manual_migration"
         if ownership_records:
             latest = ownership_records[-1]
-            if legacy_capsules:
+            if manifest.get("status") in terminal_statuses:
+                next_action = "no_action"
+            elif legacy_capsules:
                 next_action = "legacy_protocol_v1_requires_manual_migration"
             elif latest["state"] == "handoff_pending":
                 next_action = f"launch_successor:{latest['successor_role']}:{latest['message_id']}"
@@ -191,7 +196,7 @@ class RuntimeLayout:
                 activation_records.append(read_json(activation_path))
         except (FileNotFoundError, RecoveryError):
             pass
-        complete = bool(capsules) and not legacy_capsules and not errors and all(item.get("successor_role") is not None for item in capsules[-1:])
+        complete = bool(capsules) and not legacy_capsules and not errors
         return {
             "project_id": manifest.get("project_id"),
             "run_id": manifest.get("run_id"),
