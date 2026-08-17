@@ -1,0 +1,28 @@
+{
+  "schema_version": "1",
+  "project_id": "example-project",
+  "repository": {
+    "path": "../example-project",
+    "branch": "main"
+  },
+  "agent": {
+    "command": ["codex", "exec"],
+    "model": "Luna",
+    "reasoning": "High"
+  },
+  "runtime": {
+    "root": ".relayharness"
+  },
+  "supervisory_transport": {
+    "adapter": "manual",
+    "external_id": null
+  },
+  "policy": {
+    "mode": "bounded",
+    "safe_stop": true,
+    "max_turns": 10,
+    "git_cleanliness": "observe",
+    "push_required": false,
+    "safety_constraints": []
+  }
+}

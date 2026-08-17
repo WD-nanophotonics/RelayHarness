@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "relayharness"
+version = "0.1.0"
+description = "A durable local runtime for supervisory and project-specific AI agents"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "RelayHarness contributors" }]
+dependencies = []
+
+[project.scripts]
+relayharness = "relay_harness.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["relay_harness*"]

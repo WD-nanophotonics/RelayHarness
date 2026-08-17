@@ -1,0 +1,29 @@
+# RelayHarness foundation architecture
+
+## Ownership model
+
+The Kernel is the only component allowed to implement lifecycle mechanics. A and B are semantic roles with process contracts. A task capsule is a durable handoff from A to B; a result capsule is a durable handoff from B to A. A claim file records the owner of a resource. A successor can be launched only from a durable capsule and its startup ACK must match the PID launched by the Kernel.
+
+The foundation deliberately has no Controller class. A future Relay Agent A implementation can be replaced without changing the Kernel's storage, capsule, or transport contracts.
+
+## Capsule fields
+
+Every bootstrap capsule carries protocol, project/run/turn/role identity, required Luna High selection, runtime and profile references, durable state references, an optional current semantic reference, repository and expected Git metadata, output and logging contracts, the next role, and terminal behavior. The current task or result is a reference, not a prompt-history copy.
+
+Task and result capsules carry their own run/turn identity and references to larger semantic files. Their validation is structural; the Kernel does not judge whether an engineering result is good.
+
+## Recovery
+
+`RuntimeLayout.inspect_recovery` is intentionally conservative. It reconstructs what files exist, parses every capsule, reports malformed evidence, and identifies whether a continuation is structurally plausible. It does not infer what A should think, retry a failed process, or certify a successful crash-recovery run. Those are future bounded phases with explicit tests.
+
+## Process contract
+
+`SubprocessLauncher` requires an explicit `ModelRequest`, passes the capsule location and exact model request as launch metadata, and returns the exact child PID. `StartupAck` and `LivenessEvidence` are typed records; `verify_startup_ack` rejects a PID mismatch. Provider-specific model flag encoding and independent runtime model evidence must be supplied by a future real-agent adapter.
+
+## Incident evidence
+
+The journal is append-only JSONL for every run. Incidents have a small concern record plus separately preserved objective evidence. This prevents subjective agent prose from being the only basis for escalation and keeps normal supervisory traffic small.
+
+## Deliberate exclusions
+
+No historical AgentRelay/GmailCourier state machine, Gmail polling, Gmail watchdog, old Supervisor, persistent Runner, DRAINING state, transport reconciliation, legacy compatibility layer, browser orchestration, ChatGPT-specific protocol, or certification workaround is part of the core.
